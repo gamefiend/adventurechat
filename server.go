@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 
@@ -26,106 +27,127 @@ type Object struct {
 
 var (
 	connClients []Client
-	Rooms       []*Room
 	ObjectList  map[string]*Object
 )
 
 type Client struct {
-	ID          int
-	connection  net.Conn
-	currentRoom int
+	ID         int
+	connection net.Conn
+	room       *Room
 }
 
 type Msg struct {
 	sender int
 	text   string
-	room   int
+	room   *Room
 }
 
-func newClient(id, room int, conn net.Conn) Client {
-	return Client{id, conn, room}
+func newClient(id int, room *Room, conn net.Conn) Client {
+	return Client{
+		ID:         id,
+		connection: conn,
+		room:       room,
+	}
 }
 
 type ACServer struct {
-	Name   string
-	Rooms  []*Room
-	cancel context.CancelFunc
+	Name      string
+	Address   string
+	Rooms     []*Room
+	Output    io.Writer
+	broadcast chan Msg
+	ctx       context.Context
+	cancel    context.CancelFunc
+	nextID    int
 }
 
-func NewACServer(name string) *ACServer {
-
-	chatServer, err := net.Listen("tcp", "127.0.0.1:4444")
+func NewACServer(port int) *ACServer {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &ACServer{
+		Name:    "Default server",
+		Output:  os.Stdout,
+		Address: fmt.Sprintf(":%d", port),
+		Rooms: []*Room{
+			{
+				DisplayName: "The gray limbo",
+				Description: "You see nothing interesting here.",
+			},
+		},
+		ctx:       ctx,
+		cancel:    cancel,
+		broadcast: make(chan Msg, 1),
+	}
+	listener, err := net.Listen("tcp", s.Address)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Server listening on 4444")
-	broadcast := make(chan Msg, 1)
-	connPool := 0
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go broadcastConn(ctx, broadcast)
+	go s.broadcastConn()
 	go func() {
 		for {
-			if connPool >= 5 { // limit connections to 5
-				continue
-			}
-			conn, err := chatServer.Accept()
+			conn, err := listener.Accept()
 			if err != nil {
 				panic(err)
 			}
-			connPool += 1
-			go func() {
-				defer conn.Close()
-
-				client := newClient(connPool, 0, conn)
-				scanner := bufio.NewScanner(conn)
-				connClients = append(connClients, client)
-				for scanner.Scan() {
-					broadcast <- Msg{client.ID, scanner.Text(), client.currentRoom}
-				}
-			}()
+			go s.HandleConn(conn)
 
 		}
 	}()
-	return &ACServer{
-		Name:   name,
-		cancel: cancel,
+	return s
+}
+
+func (s *ACServer) Print(args ...any) {
+	fmt.Fprintln(s.Output, args...)
+}
+
+func (s *ACServer) HandleConn(conn net.Conn) {
+	defer conn.Close()
+
+	client := newClient(s.nextID, s.Rooms[0], conn)
+	s.nextID++
+	s.Print("client connected, ID ", client.ID)
+	scanner := bufio.NewScanner(conn)
+	connClients = append(connClients, client)
+	fmt.Fprintln(client.connection, client.room.Description)
+	for scanner.Scan() {
+		s.broadcast <- Msg{client.ID, scanner.Text(), client.room}
 	}
 }
 
-func broadcastConn(ctx context.Context, broadcast <-chan Msg) {
-
-	for {
-		select {
-
-		case <-ctx.Done():
-			return
-		default:
-			msg := <-broadcast
-			for _, client := range connClients {
-				if msg.sender == client.ID {
-					continue
-				}
-				if msg.room == client.currentRoom {
-					fmt.Fprintln(client.connection, msg.sender, ":", msg.text)
-				}
-			}
-		}
-
-	}
-}
-func (acs *ACServer) LoadRoom(path string) error {
-	fmt.Println("Loading room", path)
+func (s *ACServer) LoadRoom(path string) error {
+	s.Print("Loading room", path)
 	config, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
 	room := &Room{}
 	err = yaml.Unmarshal(config, room)
-	Rooms = append(Rooms, room)
+	if err != nil {
+		return fmt.Errorf("parse error %v: %q", err, config)
+	}
+	s.Rooms = append(s.Rooms, room)
 	return nil
 }
 
-func (acs *ACServer) Shutdown() {
-	acs.cancel()
+func (s *ACServer) Shutdown() {
+	s.cancel()
+}
+
+func (s *ACServer) broadcastConn() {
+	for {
+		select {
+
+		case <-s.ctx.Done():
+			return
+		default:
+			msg := <-s.broadcast
+			for _, client := range connClients {
+				if msg.sender == client.ID {
+					continue
+				}
+				if msg.room == client.room {
+					fmt.Fprintln(client.connection, msg.sender, ":", msg.text)
+				}
+			}
+		}
+	}
 }
