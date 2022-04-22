@@ -11,10 +11,11 @@ import (
 )
 
 type Room struct {
-	DisplayName string   `yaml:"displayName"`
-	Description string   `yaml:"description"`
-	Objects     []string `yaml:"objects"`
-	Exits       []string `yaml:"exits"`
+	DisplayName string
+	Description string
+	Objects     []string
+	Exits       []string
+	clients     []int
 }
 
 type Object struct {
@@ -113,9 +114,9 @@ func broadcastConn(ctx context.Context, broadcast <-chan Msg) {
 
 	}
 }
-func (acs *ACServer) LoadRoom(roomName string) error {
-	fmt.Println("Loading room", roomName)
-	config, err := os.ReadFile(roomName)
+func (acs *ACServer) LoadRoom(path string) error {
+	fmt.Println("Loading room", path)
+	config, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
