@@ -5,39 +5,28 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strings"
 	"testing"
 
 	"github.com/gamefiend/adventurechat"
-	"github.com/google/go-cmp/cmp"
 	"github.com/phayes/freeport"
 )
 
 func TestServerAllowsClientConnectionsProperly(t *testing.T) {
 	s := newTestServer(t)
+	s.Start()
 	newTestClient(t, s)
 	newTestClient(t, s)
 	s.Shutdown()
 }
 
-func TestServerCommunicatesMessagesToAllClients(t *testing.T) {
+func TestLoadRoom_LoadsRoomIntoStartRoom(t *testing.T) {
 	s := newTestServer(t)
-	c1 := newTestClient(t, s)
-	c2 := newTestClient(t, s)
-	want := "Hello World\n"
-	c1.Say(want)
-	c2.GetNextMessage()
-	got := c2.GetNextMessage()
-
-	if !strings.HasSuffix(got, want) {
-		t.Errorf(cmp.Diff(want, got))
+	err := s.LoadRoom("./data/greeting_room.yaml")
+	if err != nil {
+		t.Fatal(err)
 	}
-	s.Shutdown()
-}
-
-func TestLoadRoomSendsDescriptionToAllConnectedClients(t *testing.T) {
-	s := newTestServer(t)
-	s.LoadRoom("data/greeting_room.yaml")
+	s.SetStartRoom("Greeting Room")
+	s.Start()
 	c := newTestClient(t, s)
 	want := "Greetings, welcome to the adventure chat server.\n"
 	got := c.GetNextMessage()
@@ -51,12 +40,14 @@ func TestSetStartRoom_CausesNewClientsToJoinInGivenRoom(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t)
 	r := &adventurechat.Room{
-		DisplayName: "Test Room",
+		DisplayName: "Test Room.",
+		Description: "This is a test room.",
 	}
-	s.Rooms = append(s.Rooms, r)
-	s.SetStartRoom(r)
+	s.Rooms[r.DisplayName] = r
+	s.SetStartRoom(r.DisplayName)
+	s.Start()
 	c := newTestClient(t, s)
-	want := "Test Room.\n"
+	want := "This is a test room.\n"
 	got := c.GetNextMessage()
 	if want != got {
 		t.Errorf("Wanted: %v	\nGot: %v", want, got)
@@ -91,7 +82,7 @@ type testClient struct {
 	t          *testing.T
 }
 
-func (c *testClient) Say(msg string) {
+func (c *testClient) simulateCmd(msg string) {
 	fmt.Fprintln(c.connection, msg)
 }
 

@@ -3,13 +3,8 @@
 A simple Golang MUD
 
 ## high level features
-- [] implement room structure
-- [] implement navigation
-- [] implement names
-- [] implement commands/grammar
-- [] implement objects
-- [] implement combat systems
+- [] You can speak to everyone in a room
+- [ ] You can move to a different room
+- [ ] You can pick something up
+- [ ] you can put something down
 
-## fundamentals
-- [] initial program structure
-- [] initial testing

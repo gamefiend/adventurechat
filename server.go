@@ -12,11 +12,11 @@ import (
 )
 
 type Room struct {
-	DisplayName string
-	Description string
-	Objects     []string
-	Exits       []string
-	clients     []int
+	DisplayName string            `yaml:"display_name"`
+	Description string            `yaml:"description"`
+	Objects     []string          `yaml:"objects,omitempty"`
+	Exits       map[string]string `yaml:"exits,omitempty"`
+	clients     []int             `yaml:"clients,omitempty"`
 }
 
 type Object struct {
@@ -53,7 +53,8 @@ func newClient(id int, room *Room, conn net.Conn) Client {
 type ACServer struct {
 	Name      string
 	Address   string
-	Rooms     []*Room
+	Rooms     map[string]*Room
+	startRoom *Room
 	Output    io.Writer
 	broadcast chan Msg
 	ctx       context.Context
@@ -63,20 +64,27 @@ type ACServer struct {
 
 func NewACServer(port int) *ACServer {
 	ctx, cancel := context.WithCancel(context.Background())
+	defaultRoom := &Room{
+		DisplayName: "default",
+		Description: "default room",
+	}
 	s := &ACServer{
 		Name:    "Default server",
 		Output:  os.Stdout,
 		Address: fmt.Sprintf(":%d", port),
-		Rooms: []*Room{
-			{
-				DisplayName: "The gray limbo",
-				Description: "You see nothing interesting here.",
-			},
+		Rooms: map[string]*Room{
+			"default": defaultRoom,
 		},
+		startRoom: defaultRoom,
 		ctx:       ctx,
 		cancel:    cancel,
 		broadcast: make(chan Msg, 1),
 	}
+
+	return s
+}
+
+func (s *ACServer) Start() {
 	listener, err := net.Listen("tcp", s.Address)
 	if err != nil {
 		panic(err)
@@ -92,9 +100,7 @@ func NewACServer(port int) *ACServer {
 
 		}
 	}()
-	return s
 }
-
 func (s *ACServer) Print(args ...any) {
 	fmt.Fprintln(s.Output, args...)
 }
@@ -102,14 +108,30 @@ func (s *ACServer) Print(args ...any) {
 func (s *ACServer) HandleConn(conn net.Conn) {
 	defer conn.Close()
 
-	client := newClient(s.nextID, s.Rooms[0], conn)
+	client := newClient(s.nextID, s.startRoom, conn)
 	s.nextID++
+	fmt.Fprintln(client.connection, client.room.Description)
 	s.Print("client connected, ID ", client.ID)
+
 	scanner := bufio.NewScanner(conn)
 	connClients = append(connClients, client)
-	fmt.Fprintln(client.connection, client.room.Description)
+
 	for scanner.Scan() {
-		s.broadcast <- Msg{client.ID, scanner.Text(), client.room}
+		var text string
+		command, err := Parse(scanner.Text())
+		if err != nil {
+			fmt.Fprintln(client.connection, "I don't know what you are saying")
+		}
+		switch command.Verb {
+		case "say":
+			text = client.Say(command.Object)
+		case "go":
+			fmt.Println("let's go")
+			move := client.room.Exits[command.Object]
+			client.room = s.Rooms[move]
+			text = client.Go(command.Object)
+		}
+		s.broadcast <- Msg{client.ID, text, client.room}
 	}
 }
 
@@ -124,7 +146,7 @@ func (s *ACServer) LoadRoom(path string) error {
 	if err != nil {
 		return fmt.Errorf("parse error %v: %q", err, config)
 	}
-	s.Rooms = append(s.Rooms, room)
+	s.Rooms[room.DisplayName] = room
 	return nil
 }
 
@@ -145,9 +167,13 @@ func (s *ACServer) broadcastConn() {
 					continue
 				}
 				if msg.room == client.room {
-					fmt.Fprintln(client.connection, msg.sender, ":", msg.text)
+					fmt.Fprintln(client.connection, msg.text)
 				}
 			}
 		}
 	}
+}
+
+func (s *ACServer) SetStartRoom(name string) {
+	s.startRoom = s.Rooms[name]
 }
