@@ -1,7 +1,6 @@
 package adventurechat_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
@@ -18,13 +17,11 @@ func TestSayActionShowsTextToSpeakerAndOthersInTheSameRoom(t *testing.T) {
 	Bob.GetNextMessage()
 	Alice.simulateCmd("say Hello World")
 
-	want := "says 'Hello World'\n"
+	want := "says 'Hello World'"
 	got := Bob.GetNextMessage()
 	if !strings.HasSuffix(got, want) {
 		t.Error(cmp.Diff(want, got))
 	}
-
-	s.Shutdown()
 }
 
 func TestGoActionSendsClientToAnotherRoom(t *testing.T) {
@@ -39,19 +36,12 @@ func TestGoActionSendsClientToAnotherRoom(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.SetStartRoom("Greeting Room")
-	fmt.Println("starting server")
+	t.Log("starting server")
 	s.Start()
-	fmt.Println("Alice connecting")
+	t.Log("Alice connecting")
 	Alice := newTestClient(t, s)
 	Alice.GetNextMessage()
-
 	Alice.simulateCmd("go north")
-	fmt.Println("command issued")
-	want := "A grandiose room, filled with the spectacle of nothing"
-	got := Alice.GetNextMessage()
-	
-	if !cmp.Equal(want, got) {
-		t.Error(cmp.Diff(want, got))
-	}
-
+	Alice.expectMessage(`You enter "north"`)
+	Alice.expectMessage("A grandiose room, filled with the spectacle of nothing.")
 }

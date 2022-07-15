@@ -1,6 +1,8 @@
 package adventurechat
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func (c *Client) Say(Object string) string {
 	fmt.Fprintf(c.connection, "you say %q", Object)
@@ -8,7 +10,9 @@ func (c *Client) Say(Object string) string {
 }
 
 func (c *Client) Go(Object string) string {
+	fmt.Fprintf(c.Debug, "server sending: You enter %q\n", Object)
 	fmt.Fprintf(c.connection, "You enter %q\n", Object)
-	fmt.Fprintf(c.connection, c.room.Description)
+	fmt.Fprintf(c.Debug, "server sending: %q\n", c.room.Description)
+	fmt.Fprintln(c.connection, c.room.Description)
 	return fmt.Sprintf("%d goes %q\n", c.ID, Object)
 }

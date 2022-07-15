@@ -2,21 +2,31 @@ package adventurechat_test
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"testing"
 
 	"github.com/gamefiend/adventurechat"
+	"github.com/google/go-cmp/cmp"
 	"github.com/phayes/freeport"
 )
+
+var debug *bool
+
+func TestMain(m *testing.M) {
+	debug = flag.Bool("debug", false, "Enable debug output")
+	flag.Parse()
+	os.Exit(m.Run())
+}
 
 func TestServerAllowsClientConnectionsProperly(t *testing.T) {
 	s := newTestServer(t)
 	s.Start()
 	newTestClient(t, s)
 	newTestClient(t, s)
-	s.Shutdown()
 }
 
 func TestLoadRoom_LoadsRoomIntoStartRoom(t *testing.T) {
@@ -28,12 +38,7 @@ func TestLoadRoom_LoadsRoomIntoStartRoom(t *testing.T) {
 	s.SetStartRoom("Greeting Room")
 	s.Start()
 	c := newTestClient(t, s)
-	want := "Greetings, welcome to the adventure chat server.\n"
-	got := c.GetNextMessage()
-	if want != got {
-		t.Errorf("Wanted: %v	\nGot: %v", want, got)
-	}
-	s.Shutdown()
+	c.expectMessage("Greetings, welcome to the adventure chat server.")
 }
 
 func TestSetStartRoom_CausesNewClientsToJoinInGivenRoom(t *testing.T) {
@@ -47,11 +52,7 @@ func TestSetStartRoom_CausesNewClientsToJoinInGivenRoom(t *testing.T) {
 	s.SetStartRoom(r.DisplayName)
 	s.Start()
 	c := newTestClient(t, s)
-	want := "This is a test room.\n"
-	got := c.GetNextMessage()
-	if want != got {
-		t.Errorf("Wanted: %v	\nGot: %v", want, got)
-	}
+	c.expectMessage("This is a test room.")
 }
 
 func newTestServer(t *testing.T) *adventurechat.ACServer {
@@ -62,6 +63,12 @@ func newTestServer(t *testing.T) *adventurechat.ACServer {
 	}
 	s := adventurechat.NewACServer(port)
 	s.Output = io.Discard
+	if *debug {
+		s.Output = os.Stdout
+	}
+	t.Cleanup(func() {
+		s.Shutdown()
+	})
 	return s
 }
 
@@ -74,22 +81,33 @@ func newTestClient(t *testing.T, s *adventurechat.ACServer) *testClient {
 	return &testClient{
 		t:          t,
 		connection: conn,
+		scanner:    bufio.NewScanner(conn),
 	}
 }
 
 type testClient struct {
 	connection net.Conn
 	t          *testing.T
+	scanner    *bufio.Scanner
 }
 
 func (c *testClient) simulateCmd(msg string) {
+	c.t.Log("client sending:", msg)
 	fmt.Fprintln(c.connection, msg)
 }
 
 func (c *testClient) GetNextMessage() string {
-	got, err := bufio.NewReader(c.connection).ReadString('\n')
-	if err != nil {
-		c.t.Fatal(err)
+	if !c.scanner.Scan() {
+		c.t.Fatal(c.scanner.Err())
 	}
+	got := c.scanner.Text()
+	c.t.Log("client received:", got)
 	return got
+}
+
+func (c *testClient) expectMessage(want string) {
+	got := c.GetNextMessage()
+	if !cmp.Equal(want, got) {
+		c.t.Error(cmp.Diff(want, got))
+	}
 }

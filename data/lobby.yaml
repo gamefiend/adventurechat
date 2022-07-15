@@ -1,4 +1,4 @@
 display_name: "Lobby"
-Description: "A grandiose room, filled with the spectacle of nothing"
+description: "A grandiose room, filled with the spectacle of nothing."
 exits:
   "south": "Greeting Room"

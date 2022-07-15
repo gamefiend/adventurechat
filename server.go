@@ -34,6 +34,7 @@ type Client struct {
 	ID         int
 	connection net.Conn
 	room       *Room
+	Debug      io.Writer
 }
 
 type Msg struct {
@@ -56,6 +57,7 @@ type ACServer struct {
 	Rooms     map[string]*Room
 	startRoom *Room
 	Output    io.Writer
+	Debug     io.Writer
 	broadcast chan Msg
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -71,6 +73,7 @@ func NewACServer(port int) *ACServer {
 	s := &ACServer{
 		Name:    "Default server",
 		Output:  os.Stdout,
+		Debug:   io.Discard,
 		Address: fmt.Sprintf(":%d", port),
 		Rooms: map[string]*Room{
 			"default": defaultRoom,
@@ -101,6 +104,7 @@ func (s *ACServer) Start() {
 		}
 	}()
 }
+
 func (s *ACServer) Print(args ...any) {
 	fmt.Fprintln(s.Output, args...)
 }
@@ -109,6 +113,7 @@ func (s *ACServer) HandleConn(conn net.Conn) {
 	defer conn.Close()
 
 	client := newClient(s.nextID, s.startRoom, conn)
+	client.Debug = s.Debug
 	s.nextID++
 	fmt.Fprintln(client.connection, client.room.Description)
 	s.Print("client connected, ID ", client.ID)
@@ -126,7 +131,6 @@ func (s *ACServer) HandleConn(conn net.Conn) {
 		case "say":
 			text = client.Say(command.Object)
 		case "go":
-			fmt.Println("let's go")
 			move := client.room.Exits[command.Object]
 			client.room = s.Rooms[move]
 			text = client.Go(command.Object)
